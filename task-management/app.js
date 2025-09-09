@@ -91,317 +91,439 @@ class TaskManager {
                 completedDate: null
             }
         ];
-        this.currentTaskId = null;
+        this.nextUserId = 3;
+        this.nextTaskId = 7;
+        this.currentView = 'dashboard';
+        this.searchQuery = '';
+        this.statusFilter = '';
+        this.priorityFilter = '';
+        this.sortBy = 'dueDate';
+        this.taskToDelete = null;
+        
         this.init();
     }
 
     init() {
-        // Show loading screen initially
-        this.showLoading();
-        
-        // Simulate app initialization
-        setTimeout(() => {
-            this.bindEvents();
-            this.updateTaskStatuses();
-            this.hideLoading();
-            this.showAuthContainer();
-        }, 500);
+        this.setupEventListeners();
+        this.checkAuthState();
     }
 
-    showLoading() {
-        document.getElementById('loading-screen').classList.remove('hidden');
-    }
-
-    hideLoading() {
-        document.getElementById('loading-screen').classList.add('hidden');
-    }
-
-    bindEvents() {
-        // Authentication events
-        document.getElementById('login-form').addEventListener('submit', (e) => this.handleLogin(e));
-        document.getElementById('register-form').addEventListener('submit', (e) => this.handleRegister(e));
-        document.getElementById('show-register').addEventListener('click', (e) => this.showRegister(e));
-        document.getElementById('show-login').addEventListener('click', (e) => this.showLogin(e));
-        document.getElementById('logout-btn').addEventListener('click', (e) => this.handleLogout(e));
-
-        // Navigation events
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', (e) => this.handleNavigation(e));
+    setupEventListeners() {
+        // Authentication forms
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleLogin(e.target);
         });
 
-        // User menu
-        document.getElementById('user-menu-btn').addEventListener('click', (e) => this.toggleUserMenu(e));
-        document.addEventListener('click', (e) => this.closeUserMenu(e));
+        document.getElementById('register-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleRegister(e.target);
+        });
 
-        // Task events
-        document.getElementById('add-task-btn').addEventListener('click', () => this.showCreateTask());
-        document.getElementById('task-form').addEventListener('submit', (e) => this.handleTaskForm(e));
-        document.getElementById('cancel-task-btn').addEventListener('click', () => this.showView('tasks'));
+        // Auth switches
+        document.getElementById('show-register').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showRegisterForm();
+        });
 
-        // Filter and search events
-        document.getElementById('search-input').addEventListener('input', () => this.filterTasks());
-        document.getElementById('status-filter').addEventListener('change', () => this.filterTasks());
-        document.getElementById('priority-filter').addEventListener('change', () => this.filterTasks());
-        document.getElementById('sort-select').addEventListener('change', () => this.filterTasks());
+        document.getElementById('show-login').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showLoginForm();
+        });
 
-        // Modal events
-        document.getElementById('close-modal').addEventListener('click', () => this.closeTaskModal());
-        document.getElementById('edit-task-modal-btn').addEventListener('click', () => this.editTaskFromModal());
-        document.getElementById('toggle-status-btn').addEventListener('click', () => this.toggleTaskStatus());
-        
-        // Delete modal events
-        document.getElementById('close-delete-modal').addEventListener('click', () => this.closeDeleteModal());
-        document.getElementById('cancel-delete-btn').addEventListener('click', () => this.closeDeleteModal());
-        document.getElementById('confirm-delete-btn').addEventListener('click', () => this.confirmDeleteTask());
+        // Task form
+        document.getElementById('task-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleTaskSubmit(e.target);
+        });
 
-        // Modal overlay clicks
-        document.querySelectorAll('.modal-overlay').forEach(overlay => {
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) {
-                    overlay.parentElement.classList.add('hidden');
-                }
+        document.getElementById('cancel-task').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showView('dashboard');
+        });
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const view = e.target.getAttribute('data-view');
+                this.showView(view);
             });
         });
+
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            this.handleLogout();
+        });
+
+        // Search and filters
+        document.getElementById('search-tasks-btn').addEventListener('click', () => {
+            this.handleSearch();
+        });
+
+        document.getElementById('task-search').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleSearch();
+            }
+        });
+
+        document.getElementById('status-filter').addEventListener('change', (e) => {
+            this.statusFilter = e.target.value;
+            this.renderAllTasks();
+        });
+
+        document.getElementById('priority-filter').addEventListener('change', (e) => {
+            this.priorityFilter = e.target.value;
+            this.renderAllTasks();
+        });
+
+        document.getElementById('sort-tasks').addEventListener('change', (e) => {
+            this.sortBy = e.target.value;
+            this.renderAllTasks();
+        });
+
+        // Modal handlers
+        document.getElementById('confirm-delete').addEventListener('click', () => {
+            this.confirmDeleteTask();
+        });
+
+        document.getElementById('cancel-delete').addEventListener('click', () => {
+            this.hideModal();
+        });
+
+        // Click outside modal to close
+        document.getElementById('delete-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'delete-modal' || e.target.classList.contains('modal-overlay')) {
+                this.hideModal();
+            }
+        });
+
+        // Dynamic event delegation for task actions
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.edit-task-btn')) {
+                const taskId = parseInt(e.target.getAttribute('data-task-id'));
+                this.editTask(taskId);
+            }
+            
+            if (e.target.matches('.delete-task-btn')) {
+                const taskId = parseInt(e.target.getAttribute('data-task-id'));
+                this.deleteTask(taskId);
+            }
+            
+            if (e.target.matches('.complete-task-btn')) {
+                const taskId = parseInt(e.target.getAttribute('data-task-id'));
+                this.toggleTaskStatus(taskId);
+            }
+        });
     }
 
-    // Authentication methods
-    handleLogin(e) {
-        e.preventDefault();
-        const username = document.getElementById('login-username').value.trim();
-        const password = document.getElementById('login-password').value;
+    checkAuthState() {
+        // For demo purposes, show login form
+        document.getElementById('auth-container').classList.remove('hidden');
+        document.getElementById('main-app').classList.add('hidden');
+    }
 
+    showLoginForm() {
+        document.getElementById('login-view').classList.remove('hidden');
+        document.getElementById('register-view').classList.add('hidden');
+    }
+
+    showRegisterForm() {
+        document.getElementById('register-view').classList.remove('hidden');
+        document.getElementById('login-view').classList.add('hidden');
+    }
+
+    handleLogin(form) {
+        const formData = new FormData(form);
+        const username = formData.get('username');
+        const password = formData.get('password');
+        
         const user = this.users.find(u => u.username === username && u.password === password);
         
         if (user) {
             this.currentUser = user;
             this.showMainApp();
-            this.clearError('login-error');
+            this.hideError('login-error');
         } else {
             this.showError('login-error', 'Invalid username or password');
         }
     }
 
-    handleRegister(e) {
-        e.preventDefault();
-        const username = document.getElementById('register-username').value.trim();
-        const email = document.getElementById('register-email').value.trim();
-        const password = document.getElementById('register-password').value;
-
-        // Validation
-        if (this.users.some(u => u.username === username)) {
+    handleRegister(form) {
+        const formData = new FormData(form);
+        const username = formData.get('username');
+        const email = formData.get('email');
+        const password = formData.get('password');
+        
+        // Validate input
+        if (this.users.find(u => u.username === username)) {
             this.showError('register-error', 'Username already exists');
             return;
         }
-
-        if (this.users.some(u => u.email === email)) {
-            this.showError('register-error', 'Email already exists');
+        
+        if (this.users.find(u => u.email === email)) {
+            this.showError('register-error', 'Email already registered');
             return;
         }
-
-        if (password.length < 6) {
-            this.showError('register-error', 'Password must be at least 6 characters');
-            return;
-        }
-
+        
         // Create new user
         const newUser = {
-            id: Date.now(),
+            id: this.nextUserId++,
             username,
             email,
             password,
             joinDate: new Date().toISOString().split('T')[0]
         };
-
+        
         this.users.push(newUser);
         this.currentUser = newUser;
         this.showMainApp();
-        this.clearError('register-error');
+        this.hideError('register-error');
     }
 
-    showRegister(e) {
-        e.preventDefault();
-        document.getElementById('login-view').classList.add('hidden');
-        document.getElementById('register-view').classList.remove('hidden');
-    }
-
-    showLogin(e) {
-        e.preventDefault();
-        document.getElementById('register-view').classList.add('hidden');
-        document.getElementById('login-view').classList.remove('hidden');
-    }
-
-    handleLogout(e) {
-        e.preventDefault();
+    handleLogout() {
         this.currentUser = null;
-        this.showAuthContainer();
-    }
-
-    showAuthContainer() {
         document.getElementById('auth-container').classList.remove('hidden');
         document.getElementById('main-app').classList.add('hidden');
-        document.getElementById('login-view').classList.remove('hidden');
-        document.getElementById('register-view').classList.add('hidden');
-        this.clearForms();
+        this.showLoginForm();
     }
 
     showMainApp() {
         document.getElementById('auth-container').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
-        document.getElementById('current-username').textContent = this.currentUser.username;
         this.showView('dashboard');
-        this.updateDashboard();
-    }
-
-    // Navigation methods
-    handleNavigation(e) {
-        e.preventDefault();
-        const view = e.target.dataset.view;
-        
-        if (view === 'create-task') {
-            this.showCreateTask();
-        } else {
-            this.showView(view);
-        }
-
-        // Update active nav link
-        document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
-        e.target.classList.add('active');
     }
 
     showView(viewName) {
-        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        // Update navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-view="${viewName}"]`).classList.add('active');
+        
+        // Hide all views
+        document.querySelectorAll('.view').forEach(view => {
+            view.classList.remove('active');
+        });
+        
+        // Show target view
         document.getElementById(`${viewName}-view`).classList.add('active');
-
-        // Update nav links
-        document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
-        const activeLink = document.querySelector(`.nav-link[data-view="${viewName}"]`);
-        if (activeLink) {
-            activeLink.classList.add('active');
-        }
-
-        switch (viewName) {
+        this.currentView = viewName;
+        
+        // Load view-specific content
+        switch(viewName) {
             case 'dashboard':
-                this.updateDashboard();
+                this.renderDashboard();
                 break;
-            case 'tasks':
-                this.displayAllTasks();
+            case 'all-tasks':
+                this.renderAllTasks();
+                break;
+            case 'create-task':
+                this.resetTaskForm();
                 break;
             case 'profile':
-                this.displayProfile();
+                this.renderProfile();
                 break;
         }
     }
 
-    showCreateTask() {
-        this.currentTaskId = null;
-        document.getElementById('task-form-title').textContent = 'Create New Task';
-        document.getElementById('task-form').reset();
-        document.getElementById('task-id').value = '';
-        this.showView('create-task');
+    renderDashboard() {
+        const userTasks = this.getUserTasks();
+        const stats = this.calculateStats(userTasks);
         
-        // Update nav - remove active from all
-        document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+        // Update stats
+        document.getElementById('total-tasks').textContent = stats.total;
+        document.getElementById('pending-tasks').textContent = stats.pending;
+        document.getElementById('completed-tasks').textContent = stats.completed;
+        document.getElementById('overdue-tasks').textContent = stats.overdue;
+        
+        // Render recent tasks
+        const recentTasks = userTasks.slice(0, 5);
+        const container = document.getElementById('recent-tasks-container');
+        
+        if (recentTasks.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>No tasks found</h3>
+                    <p>Create your first task to get started!</p>
+                    <button class="btn btn--primary" data-view="create-task">Create Task</button>
+                </div>
+            `;
+        } else {
+            container.innerHTML = recentTasks.map(task => this.createTaskCard(task)).join('');
+        }
     }
 
-    // Task methods
-    getUserTasks() {
-        return this.tasks.filter(task => task.assignedTo === this.currentUser.username);
+    renderAllTasks() {
+        const filteredTasks = this.getFilteredTasks();
+        const container = document.getElementById('all-tasks-container');
+        
+        if (filteredTasks.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>No tasks found</h3>
+                    <p>Try adjusting your filters or create a new task.</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = filteredTasks.map(task => this.createTaskCard(task, true)).join('');
+        }
     }
 
-    updateTaskStatuses() {
-        const today = new Date().toISOString().split('T')[0];
+    renderProfile() {
+        if (!this.currentUser) return;
         
-        this.tasks.forEach(task => {
-            if (task.status !== 'Completed' && task.dueDate < today) {
-                task.status = 'Overdue';
-            }
-        });
+        const userTasks = this.getUserTasks();
+        const stats = this.calculateStats(userTasks);
+        
+        // Profile info
+        document.getElementById('profile-info').innerHTML = `
+            <div class="profile-field">
+                <label>Username:</label>
+                <span>${this.currentUser.username}</span>
+            </div>
+            <div class="profile-field">
+                <label>Email:</label>
+                <span>${this.currentUser.email}</span>
+            </div>
+            <div class="profile-field">
+                <label>Member since:</label>
+                <span>${this.formatDate(this.currentUser.joinDate)}</span>
+            </div>
+        `;
+        
+        // Profile stats
+        document.getElementById('profile-stats').innerHTML = `
+            <div class="stat-item">
+                <label>Total Tasks:</label>
+                <span>${stats.total}</span>
+            </div>
+            <div class="stat-item">
+                <label>Completed Tasks:</label>
+                <span>${stats.completed}</span>
+            </div>
+            <div class="stat-item">
+                <label>Pending Tasks:</label>
+                <span>${stats.pending}</span>
+            </div>
+            <div class="stat-item">
+                <label>Overdue Tasks:</label>
+                <span class="text-warning">${stats.overdue}</span>
+            </div>
+            <div class="stat-item">
+                <label>Completion Rate:</label>
+                <span class="text-success">${stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0}%</span>
+            </div>
+        `;
     }
 
-    handleTaskForm(e) {
-        e.preventDefault();
-        
-        const taskData = {
-            title: document.getElementById('task-title').value.trim(),
-            description: document.getElementById('task-description').value.trim(),
-            category: document.getElementById('task-category').value,
-            priority: document.getElementById('task-priority').value,
-            status: document.getElementById('task-status').value,
-            dueDate: document.getElementById('task-due-date').value
-        };
-
-        // Validation
-        if (!taskData.title || !taskData.category || !taskData.priority || !taskData.dueDate) {
-            this.showError('task-form-error', 'Please fill in all required fields');
+    handleTaskSubmit(form) {
+        if (!this.currentUser) {
+            this.showError('task-error', 'You must be logged in to create tasks');
             return;
         }
 
-        const taskId = document.getElementById('task-id').value;
-        
+        const formData = new FormData(form);
+        const title = formData.get('title').trim();
+        const description = formData.get('description').trim();
+        const category = formData.get('category');
+        const priority = formData.get('priority');
+        const status = formData.get('status');
+        const dueDate = formData.get('dueDate');
+        const taskId = formData.get('taskId');
+
+        if (!title || !category || !priority || !dueDate) {
+            this.showError('task-error', 'Please fill in all required fields');
+            return;
+        }
+
         if (taskId) {
-            // Update existing task
-            const taskIndex = this.tasks.findIndex(t => t.id == taskId);
-            if (taskIndex !== -1) {
-                this.tasks[taskIndex] = {
-                    ...this.tasks[taskIndex],
-                    ...taskData,
-                    completedDate: taskData.status === 'Completed' ? new Date().toISOString().split('T')[0] : null
-                };
+            // Edit existing task
+            const existingTask = this.tasks.find(t => t.id === parseInt(taskId));
+            if (existingTask && existingTask.assignedTo === this.currentUser.username) {
+                existingTask.title = title;
+                existingTask.description = description;
+                existingTask.category = category;
+                existingTask.priority = priority;
+                existingTask.status = status;
+                existingTask.dueDate = dueDate;
+                if (status === 'Completed' && !existingTask.completedDate) {
+                    existingTask.completedDate = new Date().toISOString().split('T')[0];
+                } else if (status !== 'Completed') {
+                    existingTask.completedDate = null;
+                }
             }
         } else {
             // Create new task
             const newTask = {
-                id: Date.now(),
-                ...taskData,
+                id: this.nextTaskId++,
+                title,
+                description,
+                category,
+                priority,
+                status,
+                dueDate,
                 createdDate: new Date().toISOString().split('T')[0],
                 assignedTo: this.currentUser.username,
-                completedDate: taskData.status === 'Completed' ? new Date().toISOString().split('T')[0] : null
+                completedDate: status === 'Completed' ? new Date().toISOString().split('T')[0] : null
             };
-            this.tasks.push(newTask);
+            this.tasks.unshift(newTask);
         }
 
-        this.updateTaskStatuses();
-        this.showView('tasks');
-        this.clearError('task-form-error');
+        this.hideError('task-error');
+        this.showView('dashboard');
+    }
+
+    handleSearch() {
+        this.searchQuery = document.getElementById('task-search').value.trim().toLowerCase();
+        this.renderAllTasks();
     }
 
     editTask(taskId) {
         const task = this.tasks.find(t => t.id === taskId);
-        if (!task) return;
-
-        this.currentTaskId = taskId;
+        if (!task || task.assignedTo !== this.currentUser.username) return;
+        
+        // Populate form with task data
         document.getElementById('task-form-title').textContent = 'Edit Task';
-        document.getElementById('task-id').value = taskId;
+        document.getElementById('edit-task-id').value = task.id;
         document.getElementById('task-title').value = task.title;
-        document.getElementById('task-description').value = task.description || '';
+        document.getElementById('task-description').value = task.description;
         document.getElementById('task-category').value = task.category;
         document.getElementById('task-priority').value = task.priority;
         document.getElementById('task-status').value = task.status;
         document.getElementById('task-due-date').value = task.dueDate;
-
+        
         this.showView('create-task');
     }
 
     deleteTask(taskId) {
-        this.currentTaskId = taskId;
-        document.getElementById('delete-modal').classList.remove('hidden');
+        this.taskToDelete = taskId;
+        this.showModal();
     }
 
     confirmDeleteTask() {
-        const taskIndex = this.tasks.findIndex(t => t.id === this.currentTaskId);
-        if (taskIndex !== -1) {
-            this.tasks.splice(taskIndex, 1);
-            this.updateTaskStatuses();
-            this.displayAllTasks();
-            this.updateDashboard();
+        if (this.taskToDelete) {
+            const taskIndex = this.tasks.findIndex(t => t.id === this.taskToDelete);
+            if (taskIndex > -1) {
+                const task = this.tasks[taskIndex];
+                if (task.assignedTo === this.currentUser.username) {
+                    this.tasks.splice(taskIndex, 1);
+                    this.hideModal();
+                    
+                    // Refresh current view
+                    if (this.currentView === 'dashboard') {
+                        this.renderDashboard();
+                    } else if (this.currentView === 'all-tasks') {
+                        this.renderAllTasks();
+                    }
+                }
+            }
         }
-        this.closeDeleteModal();
     }
 
-    toggleTaskStatus() {
-        const task = this.tasks.find(t => t.id === this.currentTaskId);
-        if (!task) return;
-
+    toggleTaskStatus(taskId) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task || task.assignedTo !== this.currentUser.username) return;
+        
         if (task.status === 'Completed') {
             task.status = 'Pending';
             task.completedDate = null;
@@ -409,141 +531,64 @@ class TaskManager {
             task.status = 'Completed';
             task.completedDate = new Date().toISOString().split('T')[0];
         }
-
-        this.updateTaskStatuses();
-        this.displayAllTasks();
-        this.updateDashboard();
-        this.closeTaskModal();
-    }
-
-    // Display methods
-    updateDashboard() {
-        const userTasks = this.getUserTasks();
         
-        const stats = {
-            total: userTasks.length,
-            pending: userTasks.filter(t => t.status === 'Pending').length,
-            completed: userTasks.filter(t => t.status === 'Completed').length,
-            overdue: userTasks.filter(t => t.status === 'Overdue').length,
-            inProgress: userTasks.filter(t => t.status === 'In Progress').length
-        };
-
-        stats.pending += stats.inProgress; // Combine pending and in progress for display
-
-        document.getElementById('total-tasks').textContent = stats.total;
-        document.getElementById('pending-tasks').textContent = stats.pending;
-        document.getElementById('completed-tasks').textContent = stats.completed;
-        document.getElementById('overdue-tasks').textContent = stats.overdue;
-
-        // Display recent tasks (last 5)
-        const recentTasks = userTasks
-            .sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate))
-            .slice(0, 5);
-        
-        this.displayTaskList(recentTasks, 'recent-tasks-list');
-    }
-
-    displayAllTasks() {
-        const userTasks = this.getUserTasks();
-        this.filterTasks(); // Apply current filters
-    }
-
-    displayTaskList(tasks, containerId) {
-        const container = document.getElementById(containerId);
-        
-        if (tasks.length === 0) {
-            container.innerHTML = '<div class="no-tasks" style="text-align: center; padding: 2rem; color: var(--color-text-secondary);">No tasks found</div>';
-            return;
+        // Refresh current view
+        if (this.currentView === 'dashboard') {
+            this.renderDashboard();
+        } else if (this.currentView === 'all-tasks') {
+            this.renderAllTasks();
         }
-
-        container.innerHTML = tasks.map(task => this.createTaskHTML(task)).join('');
-        
-        // Add event listeners to task items and buttons
-        container.querySelectorAll('.task-item').forEach(item => {
-            const taskId = parseInt(item.dataset.taskId);
-            
-            item.addEventListener('click', (e) => {
-                if (!e.target.closest('.task-actions')) {
-                    this.showTaskModal(taskId);
-                }
-            });
-        });
-
-        container.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const taskId = parseInt(e.target.closest('.task-item').dataset.taskId);
-                this.editTask(taskId);
-            });
-        });
-
-        container.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const taskId = parseInt(e.target.closest('.task-item').dataset.taskId);
-                this.deleteTask(taskId);
-            });
-        });
     }
 
-    createTaskHTML(task) {
-        const isOverdue = task.status !== 'Completed' && new Date(task.dueDate) < new Date();
-        const priorityClass = task.priority.toLowerCase();
-        const statusClass = task.status.toLowerCase().replace(' ', '-');
+    resetTaskForm() {
+        document.getElementById('task-form-title').textContent = 'Create New Task';
+        document.getElementById('task-form').reset();
+        document.getElementById('edit-task-id').value = '';
+        this.hideError('task-error');
         
-        return `
-            <div class="task-item" data-task-id="${task.id}">
-                <div class="task-header">
-                    <h4 class="task-title">${task.title}</h4>
-                    <div class="task-actions">
-                        <button class="task-action-btn edit-btn" title="Edit">✏️</button>
-                        <button class="task-action-btn delete-btn delete" title="Delete">🗑️</button>
-                    </div>
-                </div>
-                <div class="task-meta">
-                    <span class="priority-badge ${priorityClass}">${task.priority}</span>
-                    <span class="status-badge ${statusClass}">${task.status}</span>
-                    <span class="task-category">${task.category}</span>
-                </div>
-                <p class="task-description">${task.description || 'No description'}</p>
-                <div class="task-footer">
-                    <span class="task-due-date ${isOverdue ? 'overdue' : ''}">
-                        Due: ${this.formatDate(task.dueDate)}
-                    </span>
-                    <span>Created: ${this.formatDate(task.createdDate)}</span>
-                </div>
-            </div>
-        `;
+        // Set default due date to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        document.getElementById('task-due-date').value = tomorrow.toISOString().split('T')[0];
     }
 
-    filterTasks() {
-        const search = document.getElementById('search-input').value.toLowerCase();
-        const statusFilter = document.getElementById('status-filter').value;
-        const priorityFilter = document.getElementById('priority-filter').value;
-        const sortBy = document.getElementById('sort-select').value;
+    getUserTasks() {
+        if (!this.currentUser) return [];
+        return this.tasks.filter(task => task.assignedTo === this.currentUser.username);
+    }
 
+    getFilteredTasks() {
         let filteredTasks = this.getUserTasks();
-
-        // Apply filters
-        if (search) {
-            filteredTasks = filteredTasks.filter(task => 
-                task.title.toLowerCase().includes(search) ||
-                task.description.toLowerCase().includes(search) ||
-                task.category.toLowerCase().includes(search)
+        
+        // Apply search filter
+        if (this.searchQuery) {
+            filteredTasks = filteredTasks.filter(task =>
+                task.title.toLowerCase().includes(this.searchQuery) ||
+                task.description.toLowerCase().includes(this.searchQuery) ||
+                task.category.toLowerCase().includes(this.searchQuery)
             );
         }
-
-        if (statusFilter) {
-            filteredTasks = filteredTasks.filter(task => task.status === statusFilter);
+        
+        // Apply status filter
+        if (this.statusFilter) {
+            if (this.statusFilter === 'Overdue') {
+                const today = new Date().toISOString().split('T')[0];
+                filteredTasks = filteredTasks.filter(task => 
+                    task.status !== 'Completed' && task.dueDate < today
+                );
+            } else {
+                filteredTasks = filteredTasks.filter(task => task.status === this.statusFilter);
+            }
         }
-
-        if (priorityFilter) {
-            filteredTasks = filteredTasks.filter(task => task.priority === priorityFilter);
+        
+        // Apply priority filter
+        if (this.priorityFilter) {
+            filteredTasks = filteredTasks.filter(task => task.priority === this.priorityFilter);
         }
-
-        // Apply sorting
+        
+        // Sort tasks
         filteredTasks.sort((a, b) => {
-            switch (sortBy) {
+            switch (this.sortBy) {
                 case 'dueDate':
                     return new Date(a.dueDate) - new Date(b.dueDate);
                 case 'priority':
@@ -557,93 +602,119 @@ class TaskManager {
                     return 0;
             }
         });
-
-        this.displayTaskList(filteredTasks, 'all-tasks-list');
-    }
-
-    displayProfile() {
-        document.getElementById('profile-username').textContent = this.currentUser.username;
-        document.getElementById('profile-email').textContent = this.currentUser.email;
-        document.getElementById('profile-join-date').textContent = `Joined: ${this.formatDate(this.currentUser.joinDate)}`;
-    }
-
-    // Modal methods
-    showTaskModal(taskId) {
-        const task = this.tasks.find(t => t.id === taskId);
-        if (!task) return;
-
-        this.currentTaskId = taskId;
         
-        document.getElementById('modal-task-title').textContent = task.title;
-        document.getElementById('modal-task-description').textContent = task.description || 'No description';
-        document.getElementById('modal-task-category').textContent = task.category;
-        document.getElementById('modal-task-priority').textContent = task.priority;
-        document.getElementById('modal-task-priority').className = `priority-badge ${task.priority.toLowerCase()}`;
-        document.getElementById('modal-task-status').textContent = task.status;
-        document.getElementById('modal-task-status').className = `status-badge ${task.status.toLowerCase().replace(' ', '-')}`;
-        document.getElementById('modal-task-due-date').textContent = this.formatDate(task.dueDate);
-        document.getElementById('modal-task-created-date').textContent = this.formatDate(task.createdDate);
-
-        const toggleBtn = document.getElementById('toggle-status-btn');
-        toggleBtn.textContent = task.status === 'Completed' ? 'Mark as Pending' : 'Mark as Complete';
-
-        document.getElementById('task-modal').classList.remove('hidden');
+        return filteredTasks;
     }
 
-    closeTaskModal() {
-        document.getElementById('task-modal').classList.add('hidden');
-        this.currentTaskId = null;
+    calculateStats(tasks) {
+        const today = new Date().toISOString().split('T')[0];
+        
+        return {
+            total: tasks.length,
+            pending: tasks.filter(t => t.status === 'Pending').length,
+            inProgress: tasks.filter(t => t.status === 'In Progress').length,
+            completed: tasks.filter(t => t.status === 'Completed').length,
+            overdue: tasks.filter(t => t.status !== 'Completed' && t.dueDate < today).length
+        };
     }
 
-    closeDeleteModal() {
-        document.getElementById('delete-modal').classList.add('hidden');
-        this.currentTaskId = null;
+    createTaskCard(task, showActions = false) {
+        const isOverdue = task.status !== 'Completed' && task.dueDate < new Date().toISOString().split('T')[0];
+        const statusClass = this.getStatusClass(task.status, isOverdue);
+        const priorityClass = this.getPriorityClass(task.priority);
+        
+        return `
+            <div class="task-card ${statusClass}">
+                <div class="task-header">
+                    <div class="task-priority ${priorityClass}">
+                        ${task.priority}
+                    </div>
+                    <div class="task-category">
+                        ${task.category}
+                    </div>
+                </div>
+                <div class="task-content">
+                    <h4 class="task-title">${this.escapeHtml(task.title)}</h4>
+                    <p class="task-description">${this.escapeHtml(task.description) || 'No description'}</p>
+                </div>
+                <div class="task-meta">
+                    <span class="task-due-date ${isOverdue ? 'overdue' : ''}">
+                        Due: ${this.formatDate(task.dueDate)}
+                    </span>
+                    <span class="task-status status--${task.status.toLowerCase().replace(' ', '-')}">
+                        ${task.status}
+                    </span>
+                </div>
+                ${showActions ? `
+                    <div class="task-actions">
+                        <button class="btn btn--sm btn--outline edit-task-btn" data-task-id="${task.id}">
+                            Edit
+                        </button>
+                        <button class="btn btn--sm btn--outline complete-task-btn" data-task-id="${task.id}">
+                            ${task.status === 'Completed' ? 'Reopen' : 'Complete'}
+                        </button>
+                        <button class="btn btn--sm btn--outline delete-task-btn" data-task-id="${task.id}">
+                            Delete
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
     }
 
-    editTaskFromModal() {
-        this.closeTaskModal();
-        this.editTask(this.currentTaskId);
-    }
-
-    // Utility methods
-    toggleUserMenu(e) {
-        e.stopPropagation();
-        const dropdown = document.getElementById('user-dropdown');
-        dropdown.classList.toggle('hidden');
-    }
-
-    closeUserMenu(e) {
-        if (!e.target.closest('.user-menu')) {
-            document.getElementById('user-dropdown').classList.add('hidden');
+    getStatusClass(status, isOverdue) {
+        if (isOverdue) return 'task-overdue';
+        switch (status) {
+            case 'Completed': return 'task-completed';
+            case 'In Progress': return 'task-in-progress';
+            default: return 'task-pending';
         }
     }
 
-    formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        });
+    getPriorityClass(priority) {
+        switch (priority) {
+            case 'High': return 'priority-high';
+            case 'Medium': return 'priority-medium';
+            case 'Low': return 'priority-low';
+            default: return '';
+        }
     }
 
     showError(elementId, message) {
-        const errorElement = document.getElementById(elementId);
-        errorElement.textContent = message;
-        errorElement.classList.remove('hidden');
+        const element = document.getElementById(elementId);
+        element.textContent = message;
+        element.classList.remove('hidden');
     }
 
-    clearError(elementId) {
-        const errorElement = document.getElementById(elementId);
-        errorElement.textContent = '';
-        errorElement.classList.add('hidden');
+    hideError(elementId) {
+        const element = document.getElementById(elementId);
+        element.classList.add('hidden');
     }
 
-    clearForms() {
-        document.getElementById('login-form').reset();
-        document.getElementById('register-form').reset();
-        this.clearError('login-error');
-        this.clearError('register-error');
+    showModal() {
+        document.getElementById('delete-modal').classList.remove('hidden');
+    }
+
+    hideModal() {
+        document.getElementById('delete-modal').classList.add('hidden');
+        this.taskToDelete = null;
+    }
+
+    formatDate(dateString) {
+        return new Date(dateString).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    }
+
+    escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 }
 
