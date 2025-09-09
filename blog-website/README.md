@@ -1,6 +1,6 @@
 # BlogSpace - Professional Blog Website
 
-**Live Demo:** https://YOUR_USERNAME.github.io/CANTILEVER/blog-website/
+**Live Demo:** https://akxsh-77.github.io/CANTILEVER/blog-website/
 
 BlogSpace is a modern and responsive blogging platform that allows users to create, read, update, and delete blog posts with ease. It’s designed to be simple, clean, and professional while providing all the essential features of a blogging system.
 
